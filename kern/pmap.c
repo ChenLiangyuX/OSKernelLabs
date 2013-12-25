@@ -99,7 +99,12 @@ boot_alloc(uint32_t n)
 	//
 	// LAB 2: Your code here.
 
-	return NULL;
+        result = nextfree;
+        if (n > 0) {
+           nextfree = nextfree + ROUNDUP(n, PGSIZE);
+        }
+
+        return result;
 }
 
 // Set up a two-level page table:
@@ -116,6 +121,7 @@ mem_init(void)
 {
 	uint32_t cr0;
 	size_t n;
+        cprintf("now in mem_init ! haha\n");
 
 	// Find out how much memory the machine has (npages & npages_basemem).
 	i386_detect_memory();
@@ -229,6 +235,7 @@ mem_init(void)
 void
 page_init(void)
 {
+   cprintf("now in page_init! haha\n");
 	// The example code here marks all physical pages as free.
 	// However this is not truly the case.  What memory is free?
 	//  1) Mark physical page 0 as in use.
