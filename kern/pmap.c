@@ -420,11 +420,14 @@ boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm
    size_t offset;
    cprintf("va = %08x , pa = %08x, size = %08x \n", va , pa, size);
    for (offset = 0; offset < size; offset += PGSIZE) {
+      //cprintf("va = %08x pa = %08x\n", va, pa);
       pte_t *pte = pgdir_walk(pgdir, (void *)va, 1);
       if (!pte) {
          break;
       }
       *pte = pa | perm | PTE_P;
+      //va += offset;
+      //pa += offset;
       va += PGSIZE;
       pa += PGSIZE;
    }
