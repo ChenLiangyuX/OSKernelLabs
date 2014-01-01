@@ -69,11 +69,53 @@ static const char *trapname(int trapno)
 void
 trap_init(void)
 {
-	extern struct Segdesc gdt[];
+   extern struct Segdesc gdt[];
 
-	// LAB 3: Your code here.
+   // LAB 3: Your code here.
 
-	// Per-CPU setup 
+   extern void _divide_error_handler();
+   extern void _debug_exception_handler();
+   extern void non_maskable_interrupt_handler();
+   extern void _breakpoint_handler();
+   extern void _overflow_handler();
+   extern void _bounds_check_handler();
+   extern void _illegal_opcode_handler();
+   extern void _device_not_available_handler();
+   extern void _double_fault_handler();
+   extern void _invalid_tss_handler();
+   extern void _segment_not_present_handler();
+   extern void _stack_exception_handler();
+   extern void _general_protection_fault_handler();
+   extern void _page_fault_handler();
+   extern void _floating_point_error_handler();
+   extern void _aligment_check_handler();
+   extern void _machine_check_handler();
+   extern void _simd_floating_point_error_handler();
+   extern void _system_call_handler();
+
+   SETGATE (idt[T_DIVIDE], 0, GD_KT,_divide_error_handler, 0);
+   SETGATE (idt[T_DEBUG], 0, GD_KT, _debug_exception_handler, 0);
+   SETGATE (idt[T_NMI], 0, GD_KT, _breakpoint_handler, 0);
+
+   SETGATE (idt[T_BRKPT], 0, GD_KT, _breakpoint_handler, 3);
+
+   SETGATE(idt[T_OFLOW], 0, GD_KT, _overflow_handler, 0);
+   SETGATE(idt[T_BOUND], 0, GD_KT, _bounds_check_handler, 0);
+   SETGATE(idt[T_ILLOP], 0, GD_KT, _illegal_opcode_handler, 0);
+   SETGATE(idt[T_DEVICE], 0, GD_KT, _device_not_available_handler, 0);
+   SETGATE(idt[T_DBLFLT], 0, GD_KT, _double_fault_handler, 0);
+   SETGATE(idt[T_TSS], 0, GD_KT, _invalid_tss_handler, 0);
+   SETGATE(idt[T_SEGNP], 0, GD_KT, _segment_not_present_handler, 0);
+   SETGATE(idt[T_STACK], 0, GD_KT, _stack_exception_handler, 0);
+   SETGATE(idt[T_GPFLT], 0, GD_KT, _general_protection_fault_handler, 0);
+   SETGATE(idt[T_PGFLT], 0, GD_KT, _page_fault_handler, 0);
+   SETGATE(idt[T_FPERR], 0, GD_KT, _floating_point_error_handler, 0);
+   SETGATE(idt[T_ALIGN], 0, GD_KT, _aligment_check_handler, 0);
+   SETGATE(idt[T_MCHK], 0, GD_KT, _machine_check_handler, 0);
+   SETGATE(idt[T_SIMDERR], 0, GD_KT, _simd_floating_point_error_handler, 0);
+   SETGATE(idt[T_SYSCALL], 0, GD_KT, _system_call_handler, 3);
+
+        // Per-CPU setup
 	trap_init_percpu();
 }
 
@@ -187,6 +229,25 @@ trap_dispatch(struct Trapframe *tf)
 	// interrupt using lapic_eoi() before calling the scheduler!
 	// LAB 4: Your code here.
 
+   if (tf->tf_trapno == T_PGFLT) {
+      page_fault_handler(tf);
+   }
+   if (tf->tf_trapno == T_BRKPT) {
+      monitor(tf);
+   }
+   if (tf->tf_trapno == T_SYSCALL) {
+      tf->tf_regs.reg_eax = syscall(
+         tf->tf_regs.reg_eax,
+         tf->tf_regs.reg_edx,
+         tf->tf_regs.reg_ecx,
+         tf->tf_regs.reg_ebx,
+         tf->tf_regs.reg_edi,
+         tf->tf_regs.reg_esi
+      );
+      //注意！！ 这里要return 。。否则testbss那边就挂了
+      return ;
+   }
+
 	// Unexpected trap: The user process or the kernel has a bug.
 	print_trapframe(tf);
 	if (tf->tf_cs == GD_KT)
@@ -268,7 +329,9 @@ page_fault_handler(struct Trapframe *tf)
 	// Handle kernel-mode page faults.
 
 	// LAB 3: Your code here.
-
+        if (tf->tf_cs == GD_KT) {
+		panic("page fault in kernel");
+        }
 	// We've already handled kernel-mode exceptions, so if we get here,
 	// the page fault happened in user mode.
 
