@@ -660,7 +660,8 @@ mmio_map_region(physaddr_t pa, size_t size)
            panic("kern/pmap.c mmio_map_region overflow! base =%8x , size = %d", base, size);
         }
 
-        boot_map_region(kern_pgdir, base, size, pa, PTE_PCD | PTE_PWT);
+        // 特别注意这里的权限要加上PTE_W , 否则在识别其他CPU之前就Page Fault了
+        boot_map_region(kern_pgdir, base, size, pa, PTE_PCD | PTE_PWT | PTE_W);
         void *res = (void *)base;
         base += size;
         return res;
@@ -720,7 +721,7 @@ user_mem_check(struct Env *env, const void *va, size_t len, int perm)
 void
 user_mem_assert(struct Env *env, const void *va, size_t len, int perm)
 {
-	if (user_mem_check(env, va, len, perm | PTE_U) < 0) {
+	if (user_mem_check(env, va, len, perm | PTE_U | PTE_P) < 0) {
 		cprintf("[%08x] user_mem_check assertion failure for "
 			"va %08x\n", env->env_id, user_mem_check_addr);
 		env_destroy(env);	// may not return
