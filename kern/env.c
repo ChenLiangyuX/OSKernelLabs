@@ -24,7 +24,7 @@ static struct Env *env_free_list;	// Free environment list
 // Set up global descriptor table (GDT) with separate segments for
 // kernel mode and user mode.  Segments serve many purposes on the x86.
 // We don't use any of their memory-mapping capabilities, but we need
-// them to switch privilege levels. 
+// them to switch privilege levels.
 //
 // The kernel and user segments are identical except for the DPL.
 // To load the SS register, the CPL must equal the DPL.  Thus,
@@ -114,9 +114,15 @@ envid2env(envid_t envid, struct Env **env_store, bool checkperm)
 void
 env_init(void)
 {
-	// Set up envs array
-	// LAB 3: Your code here.
-
+   //这里type写成size_t这样的unsigned会死人的。。
+   int offset;
+   // 为了让env_free_list上的顺序 和 envs的顺序一致
+   for (offset = NENV - 1; offset >= 0; offset--) {
+      envs[offset].env_id = 0;
+      envs[offset].env_status = ENV_FREE;
+      envs[offset].env_link = env_free_list;
+      env_free_list = &envs[offset];
+   }
 	// Per-CPU part of the initialization
 	env_init_percpu();
 }
@@ -161,7 +167,6 @@ env_setup_vm(struct Env *e)
 	// Allocate a page for the page directory
 	if (!(p = page_alloc(ALLOC_ZERO)))
 		return -E_NO_MEM;
-
 	// Now, set e->env_pgdir and initialize the page directory.
 	//
 	// Hint:
@@ -177,8 +182,15 @@ env_setup_vm(struct Env *e)
 	//	is an exception -- you need to increment env_pgdir's
 	//	pp_ref for env_free to work correctly.
 	//    - The functions in kern/pmap.h are handy.
-
 	// LAB 3: Your code here.
+        e->env_pgdir = (pde_t *)page2kva(p);
+
+        memset(e->env_pgdir, 0, PGSIZE);
+        for (i = PDX(UTOP); i < 1024; i++) {
+           e->env_pgdir[i] = kern_pgdir[i];
+        }
+
+        p->pp_ref++;
 
 	// UVPT maps the env's own page table read-only.
 	// Permissions: kernel R, user R
@@ -267,6 +279,15 @@ region_alloc(struct Env *e, void *va, size_t len)
 	//   'va' and 'len' values that are not page-aligned.
 	//   You should round va down, and round (va + len) up.
 	//   (Watch out for corner-cases!)
+   void *va_st = (void *)ROUNDDOWN(va, PGSIZE);
+   void *va_ed = (void *)ROUNDUP(va + len, PGSIZE);
+   for (va = va_st; va < va_ed; va += PGSIZE) {
+      struct PageInfo *pp = page_alloc(0);
+      if (pp == NULL) {
+         panic("region_alloc : out of free memory");
+      }
+      page_insert(e->env_pgdir, pp, va, PTE_P | PTE_W | PTE_U);
+   }
 }
 
 //
@@ -294,6 +315,44 @@ region_alloc(struct Env *e, void *va, size_t len)
 static void
 load_icode(struct Env *e, uint8_t *binary, size_t size)
 {
+   struct Elf *env_elfhdr = (struct Elf *)binary;
+   struct Proghdr *ph, *eph;
+   if (env_elfhdr->e_magic != ELF_MAGIC)
+      panic("load_icode elf_magic !");
+   ph = (struct Proghdr *) ((uint8_t *)env_elfhdr + env_elfhdr->e_phoff);
+   eph = ph + env_elfhdr->e_phnum;
+   //lcr3到底是啥, 如果不用这个命令则会triple fault
+   //可以理解为切换当前的pgdir
+   lcr3(PADDR(e->env_pgdir));
+   for (; ph < eph; ph++) {
+      if (ph->p_type == ELF_PROG_LOAD) {
+         //binary + ph->p_offset 要被拷贝到ph->p_va , 共ph->p_filesz大小
+         //剩余的内存要清零
+         region_alloc(e, (void *)ph->p_va, ph->p_memsz);
+         //memset((void*) ph->p_va, 0,  ph->p_memsz - ph->p_filesz);
+         //memcpy((void *) ph->p_va, binary + ph->p_offset, ph->p_filesz);
+         memset((void *)ph->p_va, 0, ph->p_memsz);
+         // 这里一定要写成binary 不能写成env_elfhdr
+         memmove((void *)ph->p_va, binary + ph->p_offset, ph->p_filesz);
+      }
+   }
+   //lcr3(PADDR(kern_pgdir));
+
+   //  You must also do something with the program's entry point,
+   //  to make sure that the environment starts executing there.
+   //  What?  (See env_run() and env_pop_tf() below.)
+   //  不解！
+   //  懂了！
+   e->env_tf.tf_eip = env_elfhdr->e_entry;
+
+   // Now map one page for the program's initial stack
+   // at virtual address USTACKTOP - PGSIZE.
+
+   region_alloc(e, (void *)(USTACKTOP - PGSIZE), PGSIZE);
+   //struct PageInfo *pp = page_alloc(ALLOC_ZERO);
+   //page_insert(e->env_pgdir, pp, (void *)(USTACKTOP - PGSIZE), PTE_P | PTE_W | PTE_U);
+
+
 	// Hints:
 	//  Load each program segment into virtual memory
 	//  at the address specified in the ELF section header.
@@ -321,6 +380,7 @@ load_icode(struct Env *e, uint8_t *binary, size_t size)
 	//  You must also do something with the program's entry point,
 	//  to make sure that the environment starts executing there.
 	//  What?  (See env_run() and env_pop_tf() below.)
+        //  啥意思，还不知道。
 
 	// LAB 3: Your code here.
 
@@ -340,6 +400,11 @@ load_icode(struct Env *e, uint8_t *binary, size_t size)
 void
 env_create(uint8_t *binary, size_t size, enum EnvType type)
 {
+   struct Env *env;
+   if (env_alloc(&env, 0) == 0) {
+      env->env_type = type;
+      load_icode(env, binary, size);
+   }
 	// LAB 3: Your code here.
 }
 
@@ -438,7 +503,19 @@ env_pop_tf(struct Trapframe *tf)
 void
 env_run(struct Env *e)
 {
-	// Step 1: If this is a context switch (a new environment is running):
+   if (curenv != NULL) {
+      // 居然能检查出 if 里面写=的问题。。赞一个
+      if (curenv->env_status == ENV_RUNNING) {
+         curenv->env_status = ENV_RUNNABLE;
+      }
+   }
+   curenv = e;
+   curenv->env_status = ENV_RUNNING;
+   curenv->env_runs++;
+   lcr3(PADDR(curenv->env_pgdir));
+   env_pop_tf(&curenv->env_tf);
+
+   	// Step 1: If this is a context switch (a new environment is running):
 	//	   1. Set the current environment (if any) back to
 	//	      ENV_RUNNABLE if it is ENV_RUNNING (think about
 	//	      what other states it can be in),

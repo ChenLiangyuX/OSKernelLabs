@@ -158,6 +158,8 @@ mem_init(void)
 	//////////////////////////////////////////////////////////////////////
 	// Make 'envs' point to an array of size 'NENV' of 'struct Env'.
 	// LAB 3: Your code here.
+        envs = (struct Env *) boot_alloc(NENV * sizeof(struct Env));
+        memset(envs, 0, NENV * sizeof(struct Env));
 
 	//////////////////////////////////////////////////////////////////////
 	// Now that we've allocated the initial kernel data structures, we set
@@ -210,6 +212,13 @@ mem_init(void)
 	//    - the new image at UENVS  -- kernel R, user R
 	//    - envs itself -- kernel RW, user NONE
 	// LAB 3: Your code here.
+        boot_map_region(
+              kern_pgdir,
+              UENVS,
+              ROUNDUP(NENV * sizeof(struct Env), PGSIZE),
+              PADDR(envs),
+              PTE_U | PTE_P
+            );
 
 	//////////////////////////////////////////////////////////////////////
 	// Use the physical memory that 'bootstack' refers to as the kernel
@@ -305,7 +314,7 @@ page_init(void)
 	// NB: DO NOT actually touch the physical memory corresponding to
 	// free pages!
 	size_t i;
-        cprintf(" npages = %d, next_free_addr = %.8x \n", npages, boot_alloc(0));
+        //cprintf(" npages = %d, next_free_addr = %.8x \n", npages, boot_alloc(0));
 	for (i = 0; i < npages; i++) {
            pages[i].pp_ref = 0;
            physaddr_t addr = page2pa(&pages[i]);
@@ -316,7 +325,7 @@ page_init(void)
               page_free_list = &pages[i];
            }
 	}
-        cprintf("page_free_list = %08x\n", page_free_list);
+        //cprintf("page_free_list = %08x\n", page_free_list);
 
 }
 
@@ -338,10 +347,10 @@ page_alloc(int alloc_flags)
       result->pp_link = NULL;
 
       if (alloc_flags & ALLOC_ZERO) {
-         cprintf("result = %08x\n", result);
-         cprintf("page2pa(result) = %.8x\n", page2pa(result));
-         cprintf("page2kva(result) = %08x\n", page2kva(result));
-         cprintf("page_free_list = %.8x\n", page_free_list);
+         //cprintf("result = %08x\n", result);
+         //cprintf("page2pa(result) = %.8x\n", page2pa(result));
+         //cprintf("page2kva(result) = %08x\n", page2kva(result));
+         //cprintf("page_free_list = %.8x\n", page_free_list);
          // 这里如果page2kva(result)是一个还没有被map到的地址，那么不就挂了？
          memset(page2kva(result), '\0', PGSIZE);
       }
@@ -428,10 +437,10 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
 static void
 boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm)
 {
-   cprintf("boot_map_region \n");
+   //cprintf("boot_map_region \n");
    // 如果通过某个va，发现pte已经用过了咋办
    size_t offset;
-   cprintf("va = %08x , pa = %08x, size = %08x \n", va , pa, size);
+   //cprintf("va = %08x , pa = %08x, size = %08x \n", va , pa, size);
    for (offset = 0; offset < size; offset += PGSIZE) {
       //cprintf("va = %08x pa = %08x\n", va, pa);
       pte_t *pte = pgdir_walk(pgdir, (void *)va, 1);
@@ -444,7 +453,7 @@ boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm
       va += PGSIZE;
       pa += PGSIZE;
    }
-   cprintf("boot map region finished \n");
+   //cprintf("boot map region finished \n");
    return ;
 }
 
@@ -587,7 +596,23 @@ int
 user_mem_check(struct Env *env, const void *va, size_t len, int perm)
 {
 	// LAB 3: Your code here.
-
+   uint32_t va_st = (uint32_t) va;
+   uint32_t va_ed = ROUNDUP((uint32_t) va + len, PGSIZE);
+   uint32_t offset;
+   perm |= PTE_P;
+   for (offset = va_st; offset < va_ed; offset += PGSIZE) {
+      if (offset >= ULIM) {
+         user_mem_check_addr = offset;
+         return -E_FAULT;
+      }
+      pte_t *pte = pgdir_walk(env->env_pgdir, (void *)offset, 0);
+      if (pte == NULL || ((*pte & perm) != perm)) {
+         user_mem_check_addr = offset;
+         return -E_FAULT;
+      }
+      //呵呵。。第一个不能rounddown，之后都要
+      offset = ROUNDDOWN(offset, PGSIZE);
+   }
 	return 0;
 }
 
