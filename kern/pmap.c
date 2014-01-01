@@ -291,6 +291,22 @@ mem_init(void)
 static void
 mem_init_mp(void)
 {
+   int i;
+   for (i = 0; i < NCPU; i++) {
+      //cprintf("percpu .. = %8x , paddr .. = %8x \n", percpu_kstacks[i], PADDR(percpu_kstacks[i]));
+      //cprintf("&percpu .. = %8x , paddr .. = %8x \n", &percpu_kstacks[i], PADDR(&percpu_kstacks[i]));
+
+      //percpu_kstacks[i] = KSTACKTOP - i * (KTKSIZE + KTKGAP);
+      boot_map_region(
+              kern_pgdir,
+              KSTACKTOP - i * (KSTKSIZE + KSTKGAP) - KSTKSIZE,
+              KSTKSIZE,
+              // 这里到底要不要加&呢。。我觉得不用,但是两者值是一样的
+              PADDR(percpu_kstacks[i]),
+              PTE_W | PTE_P
+            );
+   }
+
 	// Map per-CPU stacks starting at KSTACKTOP, for up to 'NCPU' CPUs.
 	//
 	// For CPU i, use the physical memory that 'percpu_kstacks[i]' refers
@@ -352,7 +368,7 @@ page_init(void)
 	for (i = 0; i < npages; i++) {
            pages[i].pp_ref = 0;
            physaddr_t addr = page2pa(&pages[i]);
-           if ((i == 0) || (IOPHYSMEM <= addr && addr < (PADDR(boot_alloc(0))))) {
+           if ((i == 0) || (IOPHYSMEM <= addr && addr < (PADDR(boot_alloc(0)))) || (addr == MPENTRY_PADDR)) {
               pages[i].pp_link = NULL;
            } else {
               pages[i].pp_link = page_free_list;
@@ -638,7 +654,16 @@ mmio_map_region(physaddr_t pa, size_t size)
 	// Hint: The staff solution uses boot_map_region.
 	//
 	// Your code here:
-	panic("mmio_map_region not implemented");
+
+        size = ROUNDUP(size, PGSIZE);
+        if (base + size >= MMIOLIM) {
+           panic("kern/pmap.c mmio_map_region overflow! base =%8x , size = %d", base, size);
+        }
+
+        boot_map_region(kern_pgdir, base, size, pa, PTE_PCD | PTE_PWT);
+        void *res = (void *)base;
+        base += size;
+        return res;
 }
 
 static uintptr_t user_mem_check_addr;
