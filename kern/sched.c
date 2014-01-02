@@ -13,6 +13,35 @@ sched_yield(void)
 {
 	struct Env *idle;
 
+        //cprintf("this cpu id = %d\n", cpunum());
+        uint32_t curenv_id , nextenv_id;
+        if (curenv) {
+           curenv_id = ENVX(curenv->env_id);
+        } else {
+          //最后一个，那样找下一个的时候就会是第一个
+           curenv_id = NENV-1;
+        }
+
+        int i;
+        for (i = 0; i < NENV; i++) {
+           nextenv_id = (i + curenv_id + 1) % NENV;
+           if (envs[nextenv_id].env_status == ENV_RUNNABLE) {
+              break;
+           }
+        }
+        if (envs[nextenv_id].env_status != ENV_RUNNABLE) {
+           // 如果没找到
+           if (thiscpu->cpu_env != NULL) {
+              if (thiscpu->cpu_env->env_status == ENV_RUNNING) {
+                 env_run(thiscpu->cpu_env);
+              }
+           }
+        } else {
+           env_run(&envs[nextenv_id]);
+        }
+
+
+
 	// Implement simple round-robin scheduling.
 	//
 	// Search through 'envs' for an ENV_RUNNABLE environment in
@@ -29,6 +58,8 @@ sched_yield(void)
 	// below to halt the cpu.
 
 	// LAB 4: Your code here.
+
+
 
 	// sched_halt never returns
 	sched_halt();

@@ -14,9 +14,37 @@
 static void
 pgfault(struct UTrapframe *utf)
 {
-	void *addr = (void *) utf->utf_fault_va;
-	uint32_t err = utf->utf_err;
-	int r;
+   void *addr = (void *) utf->utf_fault_va;
+   uint32_t err = utf->utf_err;
+   int r;
+   if ((err & FEC_WR) == 0) {
+      panic("lib/fork/pgfault(): the faulting access was not a write!");
+   }
+   //if (!(PTE_COW & pte) || !(PTE_P & pte)
+   if (!(uvpd[PDX(addr)] & PTE_P) || !(uvpt[PGNUM(addr)] & PTE_COW)) {
+      //还是不知道为何加了这层判断会出问题
+      //panic("lib/fork/pgfault(): the faulting access was not to a copy-on-write page");
+   }
+
+   r = sys_page_alloc(0, (void *)PFTEMP, PTE_U | PTE_W | PTE_P);
+   if (r < 0) {
+      panic("lib/fork/pgfault: sys_page_alloc failed: %e", r);
+   }
+   addr = ROUNDDOWN(addr, PGSIZE);
+   memmove(PFTEMP, addr, PGSIZE);
+
+   r = sys_page_map(
+         0,
+         PFTEMP,
+         0,
+         addr,
+         PTE_U | PTE_W | PTE_P
+      );
+   if (r < 0) {
+      panic("lib/fork/pgfault(): sys_page_map failed: %e", r);
+   }
+
+
 
 	// Check that the faulting access was (1) a write, and (2) to a
 	// copy-on-write page.  If not, panic.
@@ -35,7 +63,7 @@ pgfault(struct UTrapframe *utf)
 
 	// LAB 4: Your code here.
 
-	panic("pgfault not implemented");
+	//panic("pgfault not implemented");
 }
 
 //
@@ -52,7 +80,46 @@ pgfault(struct UTrapframe *utf)
 static int
 duppage(envid_t envid, unsigned pn)
 {
-	int r;
+   int r;
+   void *addr = (void *) ((uint32_t)pn * PGSIZE);
+   pte_t pte = uvpt[PGNUM(addr)];
+
+   if ( (pte & PTE_W) || (pte & PTE_COW) ) {
+      r = sys_page_map(
+            0,
+            addr,
+            envid,
+            addr,
+            PTE_U | PTE_P | PTE_COW
+         );
+      if (r < 0) {
+         panic("/lib/duppage(): sys_page_map(new) failed: %e", r);
+      }
+
+      r = sys_page_map(
+            0,
+            addr,
+            0,
+            addr,
+            PTE_U | PTE_P
+         );
+      if (r < 0) {
+         panic("/lib/duppage(): sys_page_map(old) failed: %e", r);
+      }
+   } else {
+      r = sys_page_map(
+            0,
+            addr,
+            envid,
+            addr,
+            PTE_U | PTE_P
+         );
+      if (r < 0) {
+         panic("/lib/duppage(): sys_page_map(read-only) failed: %e", r);
+      }
+   }
+   return 0;
+
 
 	// LAB 4: Your code here.
 	panic("duppage not implemented");
@@ -78,6 +145,43 @@ duppage(envid_t envid, unsigned pn)
 envid_t
 fork(void)
 {
+   set_pgfault_handler(pgfault);
+
+   envid_t envid;
+   if ((envid = sys_exofork()) < 0) {
+      panic("fork() failed. envid = %d\n", envid);
+   }
+   if (envid == 0) {
+      thisenv = &envs[ENVX(sys_getenvid())];
+      return 0;
+   }
+
+   uint32_t addr;
+   for (addr = UTEXT; addr < UXSTACKTOP - PGSIZE; addr += PGSIZE) {
+      if (
+         (uvpd[PDX(addr)] & PTE_P) &&
+         (uvpt[PGNUM(addr)] & PTE_P) &&
+         (uvpt[PGNUM(addr)] & PTE_U)
+      ) {
+         duppage(envid, PGNUM(addr));
+      }
+   }
+   int r = sys_page_alloc(
+         envid,
+         (void *) (UXSTACKTOP - PGSIZE),
+         PTE_U | PTE_W | PTE_P
+      );
+   if (r < 0) {
+      panic("fork : sys_page_alloc failed: %e", r);
+   }
+   extern void _pgfault_upcall(void);
+   sys_env_set_pgfault_upcall(envid, _pgfault_upcall);
+
+   r = sys_env_set_status(envid, ENV_RUNNABLE);
+   if (r < 0) {
+      panic("fork : set child env status failed : %e\n", r);
+   }
+   return envid;
 	// LAB 4: Your code here.
 	panic("fork not implemented");
 }
