@@ -293,9 +293,6 @@ mem_init_mp(void)
 {
    int i;
    for (i = 0; i < NCPU; i++) {
-      //cprintf("percpu .. = %8x , paddr .. = %8x \n", percpu_kstacks[i], PADDR(percpu_kstacks[i]));
-      //cprintf("&percpu .. = %8x , paddr .. = %8x \n", &percpu_kstacks[i], PADDR(&percpu_kstacks[i]));
-
       //percpu_kstacks[i] = KSTACKTOP - i * (KTKSIZE + KTKGAP);
       boot_map_region(
               kern_pgdir,
