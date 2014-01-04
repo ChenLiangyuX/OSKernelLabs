@@ -84,6 +84,20 @@ duppage(envid_t envid, unsigned pn)
    void *addr = (void *) ((uint32_t)pn * PGSIZE);
    pte_t pte = uvpt[PGNUM(addr)];
 
+   if ( uvpt[pn] & PTE_SHARE) {
+      r = sys_page_map(
+            0,
+            addr,
+            envid,
+            addr,
+            uvpt[pn] & PTE_SYSCALL
+         );
+      if (r < 0) {
+         panic("/lib/fork.c : duppage(): sys_page_map failed: %e", r);
+      }
+
+   } else
+
    if ( (pte & PTE_W) || (pte & PTE_COW) ) {
       r = sys_page_map(
             0,

@@ -300,7 +300,29 @@ map_segment(envid_t child, uintptr_t va, size_t memsz,
 static int
 copy_shared_pages(envid_t child)
 {
+   uintptr_t va;
+   int r;
+
+   for (va = UTEXT; va < USTACKTOP; va += PGSIZE) {
+      if (
+            (uvpd[PDX(va)] & PTE_P) &&
+            (uvpt[PGNUM(va)] & PTE_P) &&
+            (uvpt[PGNUM(va)] & PTE_SHARE) &&
+            (uvpt[PGNUM(va)] & PTE_U)
+         ) {
+         if ((r = sys_page_map(
+                     0,
+                     (void *)va,
+                     child,
+                     (void *)va,
+                     uvpt[PGNUM(va)] & PTE_SYSCALL
+                  )
+               ) < 0) {
+            panic("copy_shared_pages sys_page_map failed: %e",r);
+         }
+      }
+   }
 	// LAB 5: Your code here.
-	return 0;
+   return 0;
 }
 
